@@ -1,27 +1,31 @@
 {
-  "name": "server",
+  "name": "CIRQORA-server",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "AI-powered Carbon-Aware Supply Chain Dashboard Backend Server",
+  "main": "server.js",
+  "type": "module",
   "scripts": {
-  "dev": "tsx watch src/app.ts",
-  "build": "tsc",
-  "start": "node dist/app.js"
-},
-  "keywords": [],
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "seed": "node seed.js"
+  },
+  "keywords": [
+    "carbon",
+    "sustainability",
+    "supply-chain",
+    "express",
+    "mongoose"
+  ],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
-    "cors": "^2.8.6",
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1"
+    "@google/generative-ai": "^0.24.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mongoose": "^8.9.5"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.6",
-    "@types/node": "^22.20.2",
-    "tsx": "^4.23.13",
-    "typescript": "^7.0.2"
+    "nodemon": "^3.1.9"
   }
 }
