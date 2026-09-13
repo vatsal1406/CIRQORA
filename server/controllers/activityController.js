@@ -1,4 +1,5 @@
 import Activity from '../models/Activity.js';
+import AiAnalysis from '../models/AiAnalysis.js';
 import { validateActivity } from '../utils/validation.js';
 import { classifyActivity } from '../services/aiClassifier.js';
 import { calculateEmissions } from '../services/carbonEngine.js';
@@ -13,7 +14,7 @@ export const createActivity = async (req, res, next) => {
       return res.status(400).json({ success: false, message: errors.join(', ') });
     }
 
-    const { companyId, supplierId, activityType, material, quantity, unit, description, date } = req.body;
+    const { companyId, supplierId, activityType, material, quantity, unit, distance, description, date } = req.body;
 
     // 2. Classify activity into Scope (1, 2, or 3) & Scope 3 Category via AI + Backend Rules
     const classification = await classifyActivity({
@@ -33,6 +34,7 @@ export const createActivity = async (req, res, next) => {
       material,
       quantity,
       unit,
+      distance: distance !== undefined && distance !== null && distance !== '' ? Number(distance) : null,
     });
 
     // 4. Save final complete Activity document into MongoDB
@@ -45,8 +47,13 @@ export const createActivity = async (req, res, next) => {
       material: material || null,
       quantity,
       unit,
+      distance: distance !== undefined && distance !== null && distance !== '' ? Number(distance) : null,
       emissionFactor: calculation.emissionFactor,
       emissions: calculation.emissions,
+      materialEmissionFactor: calculation.materialEmissionFactor,
+      materialEmissions: calculation.materialEmissions,
+      transportEmissionFactor: calculation.transportEmissionFactor,
+      transportationEmissions: calculation.transportationEmissions,
       date: date || Date.now(),
     });
 
@@ -54,6 +61,14 @@ export const createActivity = async (req, res, next) => {
     const populatedActivity = await Activity.findById(activity._id)
       .populate('companyId', 'name industry')
       .populate('supplierId', 'name location');
+
+    // Mark company's AI analysis as stale if it exists
+    if (companyId) {
+      await AiAnalysis.findOneAndUpdate(
+        { companyId },
+        { isStale: true }
+      ).catch((err) => console.error('[createActivity] Error setting AiAnalysis stale:', err.message));
+    }
 
     res.status(201).json({
       success: true,

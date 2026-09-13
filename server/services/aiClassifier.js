@@ -4,37 +4,78 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
  * Deterministic Backend Validation Rules for Known Activities
  */
 export const applyBackendRules = (activityType = '', material = '', description = '') => {
+  const typeNorm = (activityType || '').toLowerCase().replace(/[\_\s]+/g, '');
   const text = `${activityType} ${material} ${description}`.toLowerCase();
 
-  // Scope 1: Direct emissions from owned/controlled sources
-  if (
-    text.includes('diesel') ||
-    text.includes('natural_gas') ||
-    text.includes('natural gas') ||
-    text.includes('gasoline') ||
-    text.includes('furnace') ||
-    text.includes('generator fuel')
-  ) {
+  // 1. Direct Activity Type Match Rules
+  if (typeNorm === 'purchasedmaterial') {
     return {
-      scope: 1,
-      scope3Category: null,
-      reason: 'Rule matched: Fuel combustion in company-controlled equipment/facilities is Scope 1.',
+      scope: 3,
+      scope3Category: 1,
+      reason: 'Rule matched: Purchased Material activities fall under Scope 3 Category 1.',
       overridden: true,
     };
   }
 
-  // Scope 2: Indirect emissions from purchased energy
-  if (
-    text.includes('electricity') ||
-    text.includes('purchased_electricity') ||
-    text.includes('grid_power') ||
-    text.includes('steam') ||
-    text.includes('chilled water')
-  ) {
+  if (typeNorm === 'freighttransport' || typeNorm === 'upstreamtransportation') {
+    return {
+      scope: 3,
+      scope3Category: 4,
+      reason: 'Rule matched: Upstream Freight/Transportation falls under Scope 3 Category 4.',
+      overridden: true,
+    };
+  }
+
+  if (typeNorm === 'downstreamtransport') {
+    return {
+      scope: 3,
+      scope3Category: 9,
+      reason: 'Rule matched: Downstream Transportation falls under Scope 3 Category 9.',
+      overridden: true,
+    };
+  }
+
+  if (typeNorm === 'wastedisposal' || typeNorm === 'waste') {
+    return {
+      scope: 3,
+      scope3Category: 5,
+      reason: 'Rule matched: Waste disposal activities fall under Scope 3 Category 5.',
+      overridden: true,
+    };
+  }
+
+  if (typeNorm === 'businesstravel') {
+    return {
+      scope: 3,
+      scope3Category: 6,
+      reason: 'Rule matched: Business travel activities fall under Scope 3 Category 6.',
+      overridden: true,
+    };
+  }
+
+  if (typeNorm === 'employeecommuting') {
+    return {
+      scope: 3,
+      scope3Category: 7,
+      reason: 'Rule matched: Employee commuting activities fall under Scope 3 Category 7.',
+      overridden: true,
+    };
+  }
+
+  if (typeNorm === 'electricity' || typeNorm === 'purchasedelectricity') {
     return {
       scope: 2,
       scope3Category: null,
-      reason: 'Rule matched: Purchased electricity/heating is Scope 2.',
+      reason: 'Rule matched: Purchased electricity is Scope 2.',
+      overridden: true,
+    };
+  }
+
+  if (typeNorm === 'dieselcombustion' || typeNorm === 'dieselconsumption' || typeNorm === 'naturalgas') {
+    return {
+      scope: 1,
+      scope3Category: null,
+      reason: 'Rule matched: Direct fuel combustion is Scope 1.',
       overridden: true,
     };
   }
@@ -59,11 +100,21 @@ export const applyBackendRules = (activityType = '', material = '', description 
   }
 
   // Scope 3 Category 4: Upstream Transportation & Distribution
-  if (text.includes('freight') || text.includes('truck_transport') || text.includes('shipping')) {
+  if (text.includes('freight') || text.includes('upstream_transportation') || text.includes('truck_transport')) {
     return {
       scope: 3,
       scope3Category: 4,
-      reason: 'Rule matched: Freight and transport fall under Scope 3 Category 4.',
+      reason: 'Rule matched: Upstream freight/transport falls under Scope 3 Category 4.',
+      overridden: true,
+    };
+  }
+
+  // Scope 3 Category 9: Downstream Transportation & Distribution
+  if (text.includes('downstream_transport') || text.includes('downstream transport') || text.includes('distribution')) {
+    return {
+      scope: 3,
+      scope3Category: 9,
+      reason: 'Rule matched: Downstream product distribution falls under Scope 3 Category 9.',
       overridden: true,
     };
   }
@@ -74,6 +125,26 @@ export const applyBackendRules = (activityType = '', material = '', description 
       scope: 3,
       scope3Category: 5,
       reason: 'Rule matched: Waste disposal falls under Scope 3 Category 5.',
+      overridden: true,
+    };
+  }
+
+  // Scope 3 Category 6: Business Travel
+  if (text.includes('business_travel') || text.includes('business travel') || text.includes('flight') || text.includes('taxi')) {
+    return {
+      scope: 3,
+      scope3Category: 6,
+      reason: 'Rule matched: Business travel falls under Scope 3 Category 6.',
+      overridden: true,
+    };
+  }
+
+  // Scope 3 Category 7: Employee Commuting
+  if (text.includes('employee_commuting') || text.includes('employee commuting') || text.includes('commute')) {
+    return {
+      scope: 3,
+      scope3Category: 7,
+      reason: 'Rule matched: Employee commuting falls under Scope 3 Category 7.',
       overridden: true,
     };
   }
@@ -96,7 +167,7 @@ export const classifyActivity = async ({ activityType, material, description, qu
   if (apiKey && apiKey !== 'your_ai_api_key_here') {
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
 
       const prompt = `You are a GHG Protocol Carbon Accounting Expert. Classify the following corporate activity into Scope 1, Scope 2, or Scope 3 (and Scope 3 Category from 1 to 15 if Scope 3).
 Activity Type: "${activityType}"

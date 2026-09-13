@@ -10,8 +10,8 @@ export const createCompany = async (req, res, next) => {
       return res.status(400).json({ success: false, message: errors.join(', ') });
     }
 
-    const { name, industry, location } = req.body;
-    const company = await Company.create({ name, industry, location });
+    const { name, industry } = req.body;
+    const company = await Company.create({ name, industry});
 
     res.status(201).json({
       success: true,

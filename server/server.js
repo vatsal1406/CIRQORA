@@ -10,6 +10,7 @@ import supplierRoutes from './routes/supplierRoutes.js';
 import activityRoutes from './routes/activityRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import aiRoutes from './routes/aiRoutes.js';
+import simulationRoutes from './routes/simulationRoutes.js';
 
 dotenv.config();
 
@@ -36,6 +37,7 @@ app.use('/api/suppliers', supplierRoutes);
 app.use('/api/activities', activityRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/simulations', simulationRoutes);
 
 // 404 Route Handler
 app.use((req, res, next) => {

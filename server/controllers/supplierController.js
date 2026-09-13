@@ -12,12 +12,10 @@ export const createSupplier = async (req, res, next) => {
       return res.status(400).json({ success: false, message: errors.join(', ') });
     }
 
-    const { companyId, name, location, materials, cost, capacity } = req.body;
+    const { name, materials, cost, capacity } = req.body;
 
     const supplier = await Supplier.create({
-      companyId,
       name,
-      location,
       materials: Array.isArray(materials) ? materials : materials ? [materials] : [],
       cost,
       capacity,
@@ -32,17 +30,47 @@ export const createSupplier = async (req, res, next) => {
   }
 };
 
-// @desc    Get all Suppliers
-// @route   GET /api/suppliers?companyId=...
+// @desc    Get Suppliers (filtered by active company's activities or all if explicitly requested)
+// @route   GET /api/suppliers?companyId=...&all=true
 export const getSuppliers = async (req, res, next) => {
   try {
-    const filter = {};
-    if (req.query.companyId && mongoose.Types.ObjectId.isValid(req.query.companyId)) {
-      filter.companyId = req.query.companyId;
+    const { companyId, all } = req.query;
+
+    // Return all registered suppliers if all=true is requested (e.g. for dropdown when adding new activities)
+    if (all === 'true' || all === '1') {
+      const suppliers = await Supplier.find().sort({ createdAt: -1 });
+      return res.status(200).json({
+        success: true,
+        count: suppliers.length,
+        data: suppliers,
+      });
     }
 
-    const suppliers = await Supplier.find(filter).populate('companyId', 'name').sort({ createdAt: -1 });
-    res.status(200).json({
+    if (!companyId || !mongoose.Types.ObjectId.isValid(companyId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'companyId query parameter is required and must be a valid ObjectId',
+      });
+    }
+
+    const supplierIds = await Activity.distinct('supplierId', {
+      companyId: new mongoose.Types.ObjectId(companyId),
+      supplierId: { $ne: null },
+    });
+
+    if (!supplierIds || supplierIds.length === 0) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        data: [],
+      });
+    }
+
+    const suppliers = await Supplier.find({
+      _id: { $in: supplierIds },
+    }).sort({ createdAt: -1 });
+
+    return res.status(200).json({
       success: true,
       count: suppliers.length,
       data: suppliers,
@@ -56,10 +84,15 @@ export const getSuppliers = async (req, res, next) => {
 // @route   GET /api/suppliers/:id
 export const getSupplierById = async (req, res, next) => {
   try {
-    const supplier = await Supplier.findById(req.params.id).populate('companyId', 'name');
+    const supplier = await Supplier.findById(req.params.id);
+
     if (!supplier) {
-      return res.status(404).json({ success: false, message: 'Supplier not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Supplier not found',
+      });
     }
+
     res.status(200).json({
       success: true,
       data: supplier,
@@ -69,63 +102,180 @@ export const getSupplierById = async (req, res, next) => {
   }
 };
 
-// @desc    Compare Suppliers for a particular material
-// @route   GET /api/suppliers/compare?material=Aluminium&companyId=...
+// @desc    Compare Suppliers for a particular material (restricted to active company's activities)
+// @route   GET /api/suppliers/compare?companyId=...&material=Aluminium
 export const compareSuppliers = async (req, res, next) => {
   try {
     const { material, companyId } = req.query;
+
+    if (!companyId || !mongoose.Types.ObjectId.isValid(companyId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'companyId query parameter is required and must be a valid ObjectId',
+      });
+    }
+
     if (!material) {
-      return res.status(400).json({ success: false, message: 'material query parameter is required for comparison' });
+      return res.status(400).json({
+        success: false,
+        message: 'material query parameter is required for comparison',
+      });
     }
 
-    const supplierFilter = {
-      materials: new RegExp(`^${material}$`, 'i'),
+    const trimmedMaterial = material.trim();
+    const companyObjId = new mongoose.Types.ObjectId(companyId);
+
+    // Find distinct supplierIds from activities belonging to this company for this material
+    const activityQuery = {
+      companyId: companyObjId,
+      supplierId: { $ne: null },
+      $or: [
+        { material: new RegExp(`^${trimmedMaterial}$`, 'i') },
+        { activityType: new RegExp(`^${trimmedMaterial}$`, 'i') },
+      ],
     };
-    if (companyId && mongoose.Types.ObjectId.isValid(companyId)) {
-      supplierFilter.companyId = companyId;
+
+    const supplierIds = await Activity.distinct('supplierId', activityQuery);
+
+    if (!supplierIds || supplierIds.length === 0) {
+      return res.status(200).json({
+        success: true,
+        material: trimmedMaterial,
+        count: 0,
+        data: [],
+        recommendedSupplier: null,
+        hasEnoughData: false,
+        message: `Your company has no recorded purchases of ${trimmedMaterial} from suppliers yet.`,
+      });
     }
 
-    // Find all suppliers supplying this material
-    const suppliers = await Supplier.find(supplierFilter).populate('companyId', 'name');
+    const suppliers = await Supplier.find({ _id: { $in: supplierIds } });
 
-    // Gather actual calculated activity emissions for each supplier
-    const comparisonResults = await Promise.all(
+    // Gather actual calculated activity emissions and metrics for each matching supplier
+    const rawResults = await Promise.all(
       suppliers.map(async (supplier) => {
-        const activityFilter = {
+        const supplierActivities = await Activity.find({
+          companyId: companyObjId,
           supplierId: supplier._id,
           $or: [
-            { material: new RegExp(`^${material}$`, 'i') },
-            { activityType: new RegExp(`^${material}$`, 'i') },
+            { material: new RegExp(`^${trimmedMaterial}$`, 'i') },
+            { activityType: new RegExp(`^${trimmedMaterial}$`, 'i') },
           ],
-        };
+        });
 
-        const activities = await Activity.find(activityFilter);
-        const totalEmissions = activities.reduce((acc, act) => acc + (act.emissions || 0), 0);
-        const totalQuantity = activities.reduce((acc, act) => acc + (act.quantity || 0), 0);
+        const totalQuantity = supplierActivities.reduce(
+          (acc, act) => acc + (act.quantity || 0),
+          0
+        );
+
+        const primaryUnit = supplierActivities[0]?.unit || 'kg';
+
+        const materialEmissions = supplierActivities.reduce(
+          (acc, act) =>
+            acc +
+            (act.materialEmissions !== undefined && act.materialEmissions !== null
+              ? act.materialEmissions
+              : act.emissions || 0),
+          0
+        );
+
+        const transportationEmissions = supplierActivities.reduce(
+          (acc, act) => acc + (act.transportationEmissions || 0),
+          0
+        );
+
+        const hasTransportationData = supplierActivities.some(
+          (act) => (act.distance || 0) > 0 || (act.transportationEmissions || 0) > 0
+        );
+
+        const totalSupplyChainImpact = materialEmissions + transportationEmissions;
+
+        // Calculate Carbon Intensity (kgCO2e per kg or normalized unit)
+        // Note: materialEmissions and totalSupplyChainImpact are stored in tCO2e (tonnes CO2e)
+        let carbonIntensityVal = null;
+        let carbonIntensityFormatted = 'N/A';
+
+        if (totalQuantity > 0) {
+          const unitLower = (primaryUnit || '').toLowerCase();
+          if (unitLower === 'kg' || unitLower === 'kilogram' || unitLower === 'kilograms') {
+            // Convert tCO2e to kgCO2e (multiply by 1000) then divide by kg
+            carbonIntensityVal = (totalSupplyChainImpact * 1000) / totalQuantity;
+            carbonIntensityFormatted = `${(Math.round(carbonIntensityVal * 1000) / 1000).toFixed(3)} kgCO2e/kg`;
+          } else if (unitLower === 'tonne' || unitLower === 'tonnes' || unitLower === 't') {
+            carbonIntensityVal = totalSupplyChainImpact / totalQuantity;
+            carbonIntensityFormatted = `${(Math.round(carbonIntensityVal * 1000) / 1000).toFixed(3)} tCO2e/t`;
+          } else {
+            carbonIntensityVal = (totalSupplyChainImpact * 1000) / totalQuantity;
+            carbonIntensityFormatted = `${(Math.round(carbonIntensityVal * 1000) / 1000).toFixed(3)} kgCO2e/${primaryUnit}`;
+          }
+        }
 
         return {
           supplierId: supplier._id,
           supplierName: supplier.name,
-          companyName: supplier.companyId ? supplier.companyId.name : 'N/A',
-          location: supplier.location,
-          material,
+          material: trimmedMaterial,
           cost: supplier.cost,
           capacity: supplier.capacity,
-          activityCount: activities.length,
-          totalQuantity,
-          totalEmissions: Math.round(totalEmissions * 1000) / 1000, // tCO2e
-          averageEmissionFactor: totalQuantity > 0 ? Math.round((totalEmissions * 1000 / totalQuantity) * 1000) / 1000 : 0,
+          activityCount: supplierActivities.length,
+          totalQuantity: Math.round(totalQuantity * 100) / 100,
+          unit: primaryUnit,
+          materialEmissions: Math.round(materialEmissions * 1000) / 1000,
+          transportationEmissions: Math.round(transportationEmissions * 1000) / 1000,
+          hasTransportationData,
+          totalSupplyChainImpact: Math.round(totalSupplyChainImpact * 1000) / 1000,
+          totalEmissions: Math.round(totalSupplyChainImpact * 1000) / 1000,
+          carbonIntensity: carbonIntensityVal !== null ? Math.round(carbonIntensityVal * 1000) / 1000 : null,
+          carbonIntensityFormatted,
         };
       })
     );
 
-    // Sort by total calculated emissions ascending (lowest emissions first)
-    comparisonResults.sort((a, b) => a.totalEmissions - b.totalEmissions);
+    // Sort by carbonIntensity ascending if available; fallback to totalSupplyChainImpact ascending
+    rawResults.sort((a, b) => {
+      if (a.carbonIntensity !== null && b.carbonIntensity !== null) {
+        return a.carbonIntensity - b.carbonIntensity;
+      }
+      if (a.carbonIntensity !== null) return -1;
+      if (b.carbonIntensity !== null) return 1;
+      return a.totalSupplyChainImpact - b.totalSupplyChainImpact;
+    });
+
+    // Check if we have valid data for an honest recommendation
+    const topSupplier = rawResults[0];
+    const hasEnoughData =
+      rawResults.length > 0 &&
+      topSupplier &&
+      topSupplier.totalQuantity > 0 &&
+      topSupplier.carbonIntensity !== null;
+
+    const comparisonResults = rawResults.map((item, index) => ({
+      ...item,
+      efficiencyRank: index + 1,
+      isRecommended: hasEnoughData && index === 0,
+    }));
+
+    const recommendedSupplier = hasEnoughData
+      ? {
+          supplierId: topSupplier.supplierId,
+          supplierName: topSupplier.supplierName,
+          carbonIntensity: topSupplier.carbonIntensity,
+          carbonIntensityFormatted: topSupplier.carbonIntensityFormatted,
+          materialEmissions: topSupplier.materialEmissions,
+          transportationEmissions: topSupplier.transportationEmissions,
+          hasTransportationData: topSupplier.hasTransportationData,
+          totalSupplyChainImpact: topSupplier.totalSupplyChainImpact,
+          totalQuantity: topSupplier.totalQuantity,
+          unit: topSupplier.unit,
+          recommendationReason: `Lowest carbon intensity for ${trimmedMaterial} among suppliers used by your company (${topSupplier.carbonIntensityFormatted}).`,
+        }
+      : null;
 
     res.status(200).json({
       success: true,
-      material,
+      material: trimmedMaterial,
       count: comparisonResults.length,
+      hasEnoughData,
+      recommendedSupplier,
       data: comparisonResults,
     });
   } catch (error) {

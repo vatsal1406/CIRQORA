@@ -58,6 +58,27 @@ const activitySchema = new mongoose.Schema(
       type: Number,
       required: [true, 'Emissions (tCO2e) calculation is required'],
     },
+    distance: {
+      type: Number,
+      default: null,
+      min: [0, 'Distance must be a non-negative number'],
+    },
+    materialEmissionFactor: {
+      type: Number,
+      default: null,
+    },
+    materialEmissions: {
+      type: Number,
+      default: null,
+    },
+    transportEmissionFactor: {
+      type: Number,
+      default: null,
+    },
+    transportationEmissions: {
+      type: Number,
+      default: null,
+    },
     date: {
       type: Date,
       default: Date.now,

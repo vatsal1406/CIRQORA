@@ -55,15 +55,33 @@ export const getAggregatedData = async (companyId) => {
     else if (act.scope === 2) scope2 += em;
     else if (act.scope === 3) {
       scope3 += em;
-      const catNum = act.scope3Category || 1;
-      if (!scope3Map[catNum]) {
-        scope3Map[catNum] = {
-          category: catNum,
-          name: SCOPE_3_CATEGORY_NAMES[catNum] || `Category ${catNum}`,
+      
+      const matEm = act.materialEmissions !== undefined && act.materialEmissions !== null ? act.materialEmissions : em;
+      const transEm = act.transportationEmissions || 0;
+
+      // Category 1: Purchased Goods & Services (Material emissions)
+      const cat1 = act.scope3Category || 1;
+      if (!scope3Map[cat1]) {
+        scope3Map[cat1] = {
+          category: cat1,
+          name: SCOPE_3_CATEGORY_NAMES[cat1] || `Category ${cat1}`,
           emissions: 0,
         };
       }
-      scope3Map[catNum].emissions += em;
+      scope3Map[cat1].emissions += matEm;
+
+      // Category 4: Upstream Transportation (Transportation emissions)
+      if (transEm > 0) {
+        const cat4 = 4;
+        if (!scope3Map[cat4]) {
+          scope3Map[cat4] = {
+            category: cat4,
+            name: SCOPE_3_CATEGORY_NAMES[cat4],
+            emissions: 0,
+          };
+        }
+        scope3Map[cat4].emissions += transEm;
+      }
     }
 
     // Supplier breakdown
